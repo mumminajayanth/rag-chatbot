@@ -27,16 +27,9 @@ def get_text_chunks(text):
     chunks = text_splitter.split_text(text)
     return chunks
 
-def get_vector_store(text_chunks):
-    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-    vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
-    vector_store.save_local("faiss_index")
-
-def get_answer(user_question):
+def get_answer(user_question, vector_store):
     try:
-        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
-        docs = db.similarity_search(user_question)
+        docs = vector_store.similarity_search(user_question)
         context = "\n\n".join([doc.page_content for doc in docs])
         prompt_template = """
         You are a helpful, friendly and intelligent AI assistant.
@@ -56,19 +49,22 @@ def get_answer(user_question):
         )
         prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
         chain = prompt | model | StrOutputParser()
-        time.sleep(3)
+        time.sleep(2)
         response = chain.invoke({"context": context, "question": user_question})
         return response
     except Exception as e:
-        return f"⚠️ Error: Please upload PDF first, then ask your question! 😊"
+        return f"⚠️ Error: {str(e)}"
 
 def main():
     st.set_page_config(page_title="PDF Chatbot", page_icon="🤖", layout="wide")
     st.title("🤖 Chat with your PDF")
     st.markdown("Upload a PDF and ask questions from it!")
 
+    # Store vector store in session state
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    if "vector_store" not in st.session_state:
+        st.session_state.vector_store = None
 
     with st.sidebar:
         st.title("📂 Upload PDF Here")
@@ -78,10 +74,13 @@ def main():
                 with st.spinner("Processing..."):
                     raw_text = get_pdf_text(pdf_docs)
                     text_chunks = get_text_chunks(raw_text)
-                    get_vector_store(text_chunks)
+                    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+                    # Store in session state instead of disk!
+                    st.session_state.vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
                     st.success("✅ Done! Ask your question now.")
             else:
                 st.error("Please upload a PDF first!")
+
         if st.button("🗑️ Clear Chat History"):
             st.session_state.messages = []
             st.success("Chat cleared!")
@@ -94,12 +93,15 @@ def main():
 
     user_question = st.chat_input("Type your question here...")
     if user_question:
-        st.session_state.messages.append({"role": "user", "content": user_question})
-        st.chat_message("user").write(user_question)
-        with st.spinner("Finding answer..."):
-            answer = get_answer(user_question)
-        st.session_state.messages.append({"role": "assistant", "content": answer})
-        st.chat_message("assistant").write(answer)
+        if st.session_state.vector_store is None:
+            st.warning("⚠️ Please upload and process a PDF first!")
+        else:
+            st.session_state.messages.append({"role": "user", "content": user_question})
+            st.chat_message("user").write(user_question)
+            with st.spinner("Finding answer..."):
+                answer = get_answer(user_question, st.session_state.vector_store)
+            st.session_state.messages.append({"role": "assistant", "content": answer})
+            st.chat_message("assistant").write(answer)
 
 if __name__ == "__main__":
     main()
