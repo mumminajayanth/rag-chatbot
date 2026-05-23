@@ -1,4 +1,3 @@
-
 import streamlit as st
 from PyPDF2 import PdfReader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -8,6 +7,7 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 import os
+import time
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -33,26 +33,34 @@ def get_vector_store(text_chunks):
     vector_store.save_local("faiss_index")
 
 def get_answer(user_question):
-    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-    db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
-    docs = db.similarity_search(user_question)
-    context = "\n\n".join([doc.page_content for doc in docs])
-    prompt_template = """
-    You are a helpful, friendly and intelligent AI assistant.
-    Answer the question in a conversational, human like way.
-    Use the context provided to answer accurately.
-    If answer is not in context, use your own knowledge to help.
-    Be friendly, clear and detailed in your answers.
-
-    Context:\n{context}\n
-    Question:\n{question}\n
-    Answer:
-    """
-    model = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.3, api_key=os.environ["GROQ_API_KEY"])
-    prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
-    chain = prompt | model | StrOutputParser()
-    response = chain.invoke({"context": context, "question": user_question})
-    return response
+    try:
+        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
+        docs = db.similarity_search(user_question)
+        context = "\n\n".join([doc.page_content for doc in docs])
+        prompt_template = """
+        You are a helpful, friendly and intelligent AI assistant.
+        Answer the question in a conversational, human like way.
+        Use the context provided to answer accurately.
+        If answer is not in context, use your own knowledge to help.
+        Be friendly, clear and detailed in your answers.
+        Context:\n{context}\n
+        Question:\n{question}\n
+        Answer:
+        """
+        model = ChatGroq(
+            model="llama-3.1-8b-instant",
+            temperature=0.3,
+            api_key=os.environ["GROQ_API_KEY"],
+            max_retries=3
+        )
+        prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
+        chain = prompt | model | StrOutputParser()
+        time.sleep(1)
+        response = chain.invoke({"context": context, "question": user_question})
+        return response
+    except Exception as e:
+        return "⚠️ Too many requests! Please wait 10 seconds and try again 😊"
 
 def main():
     st.set_page_config(page_title="PDF Chatbot", page_icon="🤖", layout="wide")
@@ -74,7 +82,6 @@ def main():
                     st.success("✅ Done! Ask your question now.")
             else:
                 st.error("Please upload a PDF first!")
-
         if st.button("🗑️ Clear Chat History"):
             st.session_state.messages = []
             st.success("Chat cleared!")
@@ -86,17 +93,13 @@ def main():
             st.chat_message("assistant").write(message["content"])
 
     user_question = st.chat_input("Type your question here...")
-
     if user_question:
         st.session_state.messages.append({"role": "user", "content": user_question})
         st.chat_message("user").write(user_question)
-
         with st.spinner("Finding answer..."):
             answer = get_answer(user_question)
-
         st.session_state.messages.append({"role": "assistant", "content": answer})
         st.chat_message("assistant").write(answer)
 
 if __name__ == "__main__":
     main()
-    
