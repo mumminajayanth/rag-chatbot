@@ -21,15 +21,15 @@ def get_pdf_text(pdf_docs):
 
 def get_text_chunks(text):
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=10000,
-        chunk_overlap=1000
+        chunk_size=2000,
+        chunk_overlap=200
     )
     chunks = text_splitter.split_text(text)
     return chunks
 
 def get_answer(user_question, vector_store):
     try:
-        docs = vector_store.similarity_search(user_question)
+        docs = vector_store.similarity_search(user_question, k=2)
         context = "\n\n".join([doc.page_content for doc in docs])
         prompt_template = """
         You are a helpful, friendly and intelligent AI assistant.
@@ -37,6 +37,7 @@ def get_answer(user_question, vector_store):
         Use the context provided to answer accurately.
         If answer is not in context, use your own knowledge to help.
         Be friendly, clear and detailed in your answers.
+        Keep your answer concise and under 200 words.
         Context:\n{context}\n
         Question:\n{question}\n
         Answer:
@@ -47,7 +48,10 @@ def get_answer(user_question, vector_store):
             api_key=os.environ["GROQ_API_KEY"],
             max_retries=5
         )
-        prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
+        prompt = PromptTemplate(
+            template=prompt_template,
+            input_variables=["context", "question"]
+        )
         chain = prompt | model | StrOutputParser()
         time.sleep(2)
         response = chain.invoke({"context": context, "question": user_question})
@@ -60,7 +64,6 @@ def main():
     st.title("🤖 Chat with your PDF")
     st.markdown("Upload a PDF and ask questions from it!")
 
-    # Store vector store in session state
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "vector_store" not in st.session_state:
@@ -68,15 +71,23 @@ def main():
 
     with st.sidebar:
         st.title("📂 Upload PDF Here")
-        pdf_docs = st.file_uploader("Choose PDF files", accept_multiple_files=True, type="pdf")
+        pdf_docs = st.file_uploader(
+            "Choose PDF files",
+            accept_multiple_files=True,
+            type="pdf"
+        )
         if st.button("Submit & Process"):
             if pdf_docs:
                 with st.spinner("Processing..."):
                     raw_text = get_pdf_text(pdf_docs)
                     text_chunks = get_text_chunks(raw_text)
-                    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-                    # Store in session state instead of disk!
-                    st.session_state.vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
+                    embeddings = HuggingFaceEmbeddings(
+                        model_name="all-MiniLM-L6-v2"
+                    )
+                    st.session_state.vector_store = FAISS.from_texts(
+                        text_chunks,
+                        embedding=embeddings
+                    )
                     st.success("✅ Done! Ask your question now.")
             else:
                 st.error("Please upload a PDF first!")
@@ -96,11 +107,18 @@ def main():
         if st.session_state.vector_store is None:
             st.warning("⚠️ Please upload and process a PDF first!")
         else:
-            st.session_state.messages.append({"role": "user", "content": user_question})
+            st.session_state.messages.append(
+                {"role": "user", "content": user_question}
+            )
             st.chat_message("user").write(user_question)
             with st.spinner("Finding answer..."):
-                answer = get_answer(user_question, st.session_state.vector_store)
-            st.session_state.messages.append({"role": "assistant", "content": answer})
+                answer = get_answer(
+                    user_question,
+                    st.session_state.vector_store
+                )
+            st.session_state.messages.append(
+                {"role": "assistant", "content": answer}
+            )
             st.chat_message("assistant").write(answer)
 
 if __name__ == "__main__":
