@@ -49,18 +49,18 @@ def get_answer(user_question):
         Answer:
         """
         model = ChatGroq(
-            model="llama-3.1-8b-instant",
+            model="gemma2-9b-it",
             temperature=0.3,
             api_key=os.environ["GROQ_API_KEY"],
-            max_retries=3
+            max_retries=5
         )
         prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
         chain = prompt | model | StrOutputParser()
-        time.sleep(1)
+        time.sleep(3)
         response = chain.invoke({"context": context, "question": user_question})
         return response
     except Exception as e:
-        return "⚠️ Too many requests! Please wait 10 seconds and try again 😊"
+        return f"⚠️ Error: Please upload PDF first, then ask your question! 😊"
 
 def main():
     st.set_page_config(page_title="PDF Chatbot", page_icon="🤖", layout="wide")
